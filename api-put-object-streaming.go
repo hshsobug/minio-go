@@ -23,6 +23,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -102,6 +103,8 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 	if err = s3utils.CheckValidObjectName(objectName); err != nil {
 		return UploadInfo{}, err
 	}
+
+	log.Printf("Received parameters: %+v", bucketName)
 
 	// Calculate the optimal parts info for a given size.
 	totalPartsCount, partSize, lastPartSize, err := OptimalPartInfo(size, opts.PartSize)
