@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sort"
 	"time"
@@ -316,7 +317,11 @@ func (c *Client) PutObject(ctx context.Context, bucketName, objectName string, r
 		return UploadInfo{}, err
 	}
 
-	return c.putObjectCommon(ctx, bucketName, objectName, reader, objectSize, opts)
+	// sobug
+	info, e := c.putObjectCommon(ctx, bucketName, objectName, reader, objectSize, opts)
+	log.Println("putObjectCommon info.", info)
+	log.Println("putObjectCommon e.", e)
+	return info, e
 }
 
 func (c *Client) putObjectCommon(ctx context.Context, bucketName, objectName string, reader io.Reader, size int64, opts PutObjectOptions) (info UploadInfo, err error) {

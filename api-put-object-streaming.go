@@ -96,6 +96,9 @@ type uploadPartReq struct {
 func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketName, objectName string,
 	reader io.ReaderAt, size int64, opts PutObjectOptions,
 ) (info UploadInfo, err error) {
+	// sobug
+	log.Printf("putObjectMultipartStreamFromReadAt start")
+
 	// Input validation.
 	if err = s3utils.CheckValidBucketName(bucketName); err != nil {
 		return UploadInfo{}, err
@@ -103,8 +106,6 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 	if err = s3utils.CheckValidObjectName(objectName); err != nil {
 		return UploadInfo{}, err
 	}
-
-	log.Printf("Received parameters: %+v", bucketName)
 
 	// Calculate the optimal parts info for a given size.
 	totalPartsCount, partSize, lastPartSize, err := OptimalPartInfo(size, opts.PartSize)
@@ -121,22 +122,56 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 		}
 		opts.UserMetadata["X-Amz-Checksum-Algorithm"] = opts.AutoChecksum.String()
 	}
-	// Initiate a new multipart upload.
-	uploadID, err := c.newUploadID(ctx, bucketName, objectName, opts)
-	if err != nil {
-		return UploadInfo{}, err
+
+	// sobug
+	var uploadID string
+	// 控制上传出错开关
+	var uploadFailedSwitch bool = true
+	// 是否是续传
+	var breakPointResume = false
+	var objectParts map[int]ObjectPart
+	// 查询现有的uploadID
+	if existingUploadID, exists := getExistingUploadID(bucketName, objectName); exists {
+		uploadID = existingUploadID
+		breakPointResume = true
+		objectParts, err = c.listObjectParts(context.Background(), bucketName, objectName, uploadID)
+		if err != nil {
+			// 如果有错误，打印错误信息
+			fmt.Println("Error listing object parts:", err)
+		} else {
+			// 如果没有错误，打印objectParts的内容
+			fmt.Println("Object parts:")
+			for _, part := range objectParts {
+				fmt.Printf("Part Number: %d, ETag: %s, Size: %d\n", part.PartNumber, part.ETag, part.Size)
+			}
+		}
+		// 已有的uploadID，则继续上传
+		uploadFailedSwitch = false
+	} else {
+		// 如果没有现有的uploadID，则请求一个新的uploadID
+		// Initiate a new multipart upload.
+		uploadID, err = c.newUploadID(ctx, bucketName, objectName, opts)
+		if err != nil {
+			return UploadInfo{}, err
+		}
+		// 存储新的uploadID
+		if err = storeNewUploadID(bucketName, objectName, uploadID); err != nil {
+			return UploadInfo{}, err
+		}
 	}
+
 	delete(opts.UserMetadata, "X-Amz-Checksum-Algorithm")
 
 	// Aborts the multipart upload in progress, if the
 	// function returns any error, since we do not resume
 	// we should purge the parts which have been uploaded
 	// to relinquish storage space.
-	defer func() {
-		if err != nil {
-			c.abortMultipartUpload(ctx, bucketName, objectName, uploadID)
-		}
-	}()
+	// sobug 取消错误后删除已上传文件
+	// defer func() {
+	// 	if err != nil {
+	// 		c.abortMultipartUpload(ctx, bucketName, objectName, uploadID)
+	// 	}
+	// }()
 
 	// Total data read and written to server. should be equal to 'size' at the end of the call.
 	var totalUploadedSize int64
@@ -183,6 +218,17 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 					}
 					// Each worker will draw from the part channel and upload in parallel.
 				}
+				// sobug 如果是续传，分片已经存在于objectParts中，跳过上传
+				if breakPointResume {
+					if objectPart, exists := objectParts[uploadReq.PartNum]; exists {
+						uploadedPartsCh <- uploadedPartRes{
+							Size:    objectPart.Size,
+							PartNum: uploadReq.PartNum,
+							Part:    objectPart,
+						}
+						continue
+					}
+				}
 
 				// If partNumber was not uploaded we calculate the missing
 				// part offset and size. For all other part numbers we
@@ -219,14 +265,34 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 					sha256Hex:    "",
 					trailer:      trailer,
 				}
-				objPart, err := c.uploadPart(ctx, p)
-				if err != nil {
+
+				// sobug 添加条件判断，如果控制错误开关开启且分片编号为5，则制造一个错误
+				var objPart ObjectPart
+				if uploadFailedSwitch && uploadReq.PartNum == 5 {
 					uploadedPartsCh <- uploadedPartRes{
-						Error: err,
+						Error: fmt.Errorf("故意制造的错误：分片编号为5时上传失败"),
 					}
 					// Exit the goroutine.
-					return
+					// return
+				} else {
+					objPart, err = c.uploadPart(ctx, p)
+					if err != nil {
+						uploadedPartsCh <- uploadedPartRes{
+							Error: err,
+						}
+						// Exit the goroutine.
+						return
+					}
 				}
+
+				// objPart, err := c.uploadPart(ctx, p)
+				// if err != nil {
+				// 	uploadedPartsCh <- uploadedPartRes{
+				// 		Error: err,
+				// 	}
+				// 	// Exit the goroutine.
+				// 	return
+				// }
 
 				// Save successfully uploaded part metadata.
 				uploadReq.Part = objPart
@@ -248,6 +314,18 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 		case <-ctx.Done():
 			return UploadInfo{}, ctx.Err()
 		case uploadRes := <-uploadedPartsCh:
+			// sobug
+			fmt.Printf("uploadedPartRes: { Size: %d, PartNum: %d, Part: %+v }\n",
+				uploadRes.Size, uploadRes.PartNum, uploadRes.Part)
+			// if uploadRes.Error != nil {
+			// 	// 如果分片编号为5，只记录错误，不终止整个程序
+			// 	if uploadRes.PartNum == 5 {
+			// 		fmt.Printf("分片编号为5时上传失败: %v\n", uploadRes.Error)
+			// 		continue
+			// 	}
+			// 	return UploadInfo{}, uploadRes.Error
+			// }
+
 			if uploadRes.Error != nil {
 				return UploadInfo{}, uploadRes.Error
 			}
@@ -264,6 +342,13 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 			})
 		}
 	}
+	// sobug
+	for _, part := range complMultipartUpload.Parts {
+		fmt.Printf("PartNumber: %d, ETag: %s, ChecksumCRC32: %s, ChecksumCRC32C: %s, ChecksumSHA1: %s, ChecksumSHA256: %s\n",
+			part.PartNumber, part.ETag, part.ChecksumCRC32, part.ChecksumCRC32C, part.ChecksumSHA1, part.ChecksumSHA256)
+	}
+	log.Println("totalUploadedSize. ", totalUploadedSize)
+	log.Println("size. ", size)
 
 	// Verify if we uploaded all the data.
 	if totalUploadedSize != size {
@@ -296,6 +381,28 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 
 	uploadInfo.Size = totalUploadedSize
 	return uploadInfo, nil
+}
+
+// 假设这是我们的缓存对象
+var uploadIDCache sync.Map
+
+// 查询现有的uploadID
+func getExistingUploadID(bucketName, objectName string) (string, bool) {
+	// 使用sync.Map的Load方法来查询缓存
+	log.Println("getExistingUploadID:", fmt.Sprintf("%s/%s", bucketName, objectName))
+	uploadID, ok := uploadIDCache.Load(fmt.Sprintf("%s/%s", bucketName, objectName))
+	log.Println("uploadID:", uploadID)
+	if ok {
+		return uploadID.(string), true
+	}
+	return "", false
+}
+
+// 存储新的uploadID
+func storeNewUploadID(bucketName, objectName, uploadID string) error {
+	// 使用sync.Map的Store方法来存储数据
+	uploadIDCache.Store(fmt.Sprintf("%s/%s", bucketName, objectName), uploadID)
+	return nil
 }
 
 func (c *Client) putObjectMultipartStreamOptionalChecksum(ctx context.Context, bucketName, objectName string,
