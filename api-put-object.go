@@ -111,6 +111,9 @@ type PutObjectOptions struct {
 	Internal              AdvancedPutOptions
 
 	customHeaders http.Header
+
+	// sobug 增加目标路径属性
+	Dst string
 }
 
 // SetMatchETag if etag matches while PUT MinIO returns an error
@@ -318,6 +321,7 @@ func (c *Client) PutObject(ctx context.Context, bucketName, objectName string, r
 	}
 
 	// sobug
+	log.Println("putObjectCommon opts.", opts)
 	info, e := c.putObjectCommon(ctx, bucketName, objectName, reader, objectSize, opts)
 	log.Println("putObjectCommon info.", info)
 	log.Println("putObjectCommon e.", e)

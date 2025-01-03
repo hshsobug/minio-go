@@ -226,6 +226,8 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 							PartNum: uploadReq.PartNum,
 							Part:    objectPart,
 						}
+						// 进度条更新
+						opts.Progress.(*Accounter).Add(objectPart.Size)
 						continue
 					}
 				}
@@ -344,7 +346,7 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 	}
 	// sobug
 	for _, part := range complMultipartUpload.Parts {
-		fmt.Printf("PartNumber: %d, ETag: %s, ChecksumCRC32: %s, ChecksumCRC32C: %s, ChecksumSHA1: %s, ChecksumSHA256: %s\n",
+		log.Printf("PartNumber: %d, ETag: %s, ChecksumCRC32: %s, ChecksumCRC32C: %s, ChecksumSHA1: %s, ChecksumSHA256: %s\n",
 			part.PartNumber, part.ETag, part.ChecksumCRC32, part.ChecksumCRC32C, part.ChecksumSHA1, part.ChecksumSHA256)
 	}
 	log.Println("totalUploadedSize. ", totalUploadedSize)
@@ -361,6 +363,7 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 	opts = PutObjectOptions{
 		ServerSideEncryption: opts.ServerSideEncryption,
 		AutoChecksum:         opts.AutoChecksum,
+		Dst:                  opts.Dst,
 	}
 	if withChecksum {
 		// Add hash of hashes.
@@ -868,6 +871,10 @@ func (c *Client) putObjectDo(ctx context.Context, bucketName, objectName string,
 	}
 	// Set headers.
 	customHeader := opts.Header()
+
+	// sobug 增加上传成功后提取位置
+	customHeader.Set("dst", opts.Dst)
+	log.Println("customHeader", customHeader)
 
 	// Populate request metadata.
 	reqMetadata := requestMetadata{

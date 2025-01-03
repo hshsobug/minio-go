@@ -25,6 +25,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -393,6 +394,10 @@ func (c *Client) completeMultipartUpload(ctx context.Context, bucketName, object
 		headers.Del(encrypt.SseGenericHeader)     // Remove X-Amz-Server-Side-Encryption not supported in CompleteMultipartUpload
 		headers.Del(encrypt.SseEncryptionContext) // Remove X-Amz-Server-Side-Encryption-Context not supported in CompleteMultipartUpload
 	}
+
+	// sobug 增加上传成功后提取位置
+	headers.Set("dst", opts.Dst)
+	log.Println("completeMultipartUpload customHeader", headers)
 
 	// Instantiate all the complete multipart buffer.
 	completeMultipartUploadBuffer := bytes.NewReader(completeMultipartUploadBytes)
