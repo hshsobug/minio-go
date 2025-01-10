@@ -137,12 +137,12 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 		objectParts, err = c.listObjectParts(context.Background(), bucketName, objectName, uploadID)
 		if err != nil {
 			// 如果有错误，打印错误信息
-			fmt.Println("Error listing object parts:", err)
+			log.Println("Error listing object parts:", err)
 		} else {
 			// 如果没有错误，打印objectParts的内容
-			fmt.Println("Object parts:")
+			log.Println("Object parts:")
 			for _, part := range objectParts {
-				fmt.Printf("Part Number: %d, ETag: %s, Size: %d\n", part.PartNumber, part.ETag, part.Size)
+				log.Printf("Part Number: %d, ETag: %s, Size: %d\n", part.PartNumber, part.ETag, part.Size)
 			}
 		}
 		// 已有的uploadID，则继续上传
@@ -317,7 +317,7 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 			return UploadInfo{}, ctx.Err()
 		case uploadRes := <-uploadedPartsCh:
 			// sobug
-			fmt.Printf("uploadedPartRes: { Size: %d, PartNum: %d, Part: %+v }\n",
+			log.Printf("uploadedPartRes: { Size: %d, PartNum: %d, Part: %+v }\n",
 				uploadRes.Size, uploadRes.PartNum, uploadRes.Part)
 			// if uploadRes.Error != nil {
 			// 	// 如果分片编号为5，只记录错误，不终止整个程序
@@ -382,6 +382,9 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 		return UploadInfo{}, err
 	}
 
+	// 上传成功后删除id
+	deleteUploadID(bucketName, objectName)
+
 	uploadInfo.Size = totalUploadedSize
 	return uploadInfo, nil
 }
@@ -405,6 +408,12 @@ func getExistingUploadID(bucketName, objectName string) (string, bool) {
 func storeNewUploadID(bucketName, objectName, uploadID string) error {
 	// 使用sync.Map的Store方法来存储数据
 	uploadIDCache.Store(fmt.Sprintf("%s/%s", bucketName, objectName), uploadID)
+	return nil
+}
+
+// 删除uploadID
+func deleteUploadID(bucketName, objectName string) error {
+	uploadIDCache.Delete(fmt.Sprintf("%s/%s", bucketName, objectName))
 	return nil
 }
 
