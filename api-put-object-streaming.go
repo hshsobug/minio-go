@@ -125,8 +125,8 @@ func (c *Client) putObjectMultipartStreamFromReadAt(ctx context.Context, bucketN
 
 	// sobug
 	var uploadID string
-	// 控制上传出错开关
-	var uploadFailedSwitch bool = true
+	// 控制上传出错开关 true 故意制造错误
+	var uploadFailedSwitch bool = false
 	// 是否是续传
 	var breakPointResume = false
 	var objectParts map[int]ObjectPart
