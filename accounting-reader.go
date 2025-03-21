@@ -43,6 +43,10 @@ type Accounter struct {
 
 	// sobug 速度属性
 	Speed float64
+	// 记录上一次调用write方法的时间
+	lastWriteTime time.Time
+	// 记录上一次调用write方法的传输量
+	lastWriteValue int64
 }
 
 // NewAccounter - Instantiate a new accounter.
@@ -61,15 +65,49 @@ func NewAccounter(total int64) *Accounter {
 
 // write calculate the final speed.
 func (a *Accounter) write(current int64) float64 {
-	fromStart := time.Since(a.StartTime)
-	currentFromStart := current - a.startValue
-	if currentFromStart > 0 {
-		speed := float64(currentFromStart) / (float64(fromStart) / float64(time.Second))
+	now := time.Now()
+	// 计算时间差
+	timeDiff := now.Sub(a.lastWriteTime)
+	// 计算传输量的差值
+	valueDiff := current - a.lastWriteValue
+	// 更新最后一次调用write方法的时间和传输量
+	a.lastWriteTime = now
+	a.lastWriteValue = current
+	// 如果时间差大于0，则计算速度
+	if timeDiff > 0 {
+		speed := float64(valueDiff) / (float64(timeDiff) / float64(time.Second))
 		a.Speed = speed
+		// log.Printf("Accounter properties:\n\tcurrent: %d\n\ttotal: %d\n\tStartTime: %s\n\tstartValue: %d\n\trefreshRate: %s\n\tcurrentValue: %d\n\tSpeed: %.2f\n\tlastWriteTime: %s\n\tlastWriteValue: %d\n",
+		// 	a.current, a.total, a.StartTime, a.startValue, a.refreshRate, a.currentValue, a.Speed, a.lastWriteTime, a.lastWriteValue)
 		return speed
 	}
 	return 0.0
 }
+
+// NewAccounter - Instantiate a new accounter.
+// func NewAccounter(total int64) *Accounter {
+// 	acct := &Accounter{
+// 		total:        total,
+// 		StartTime:    time.Now(),
+// 		startValue:   0,
+// 		refreshRate:  time.Millisecond * 200,
+// 		IsFinished:   make(chan struct{}),
+// 		currentValue: -1,
+// 	}
+// 	go acct.writer()
+// 	return acct
+// }
+// write calculate the final speed.
+// func (a *Accounter) write(current int64) float64 {
+// 	fromStart := time.Since(a.StartTime)
+// 	currentFromStart := current - a.startValue
+// 	if currentFromStart > 0 {
+// 		speed := float64(currentFromStart) / (float64(fromStart) / float64(time.Second))
+// 		a.Speed = speed
+// 		return speed
+// 	}
+// 	return 0.0
+// }
 
 // writer update new accounting data for a specified refreshRate.
 func (a *Accounter) writer() {

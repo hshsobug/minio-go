@@ -24,7 +24,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"sort"
 	"time"
@@ -321,10 +320,10 @@ func (c *Client) PutObject(ctx context.Context, bucketName, objectName string, r
 	}
 
 	// sobug
-	log.Println("putObjectCommon opts.", opts)
+	// log.Println("putObjectCommon opts.", opts)
 	info, e := c.putObjectCommon(ctx, bucketName, objectName, reader, objectSize, opts)
-	log.Println("putObjectCommon info.", info)
-	log.Println("putObjectCommon e.", e)
+	// log.Println("putObjectCommon info.", info)
+	// log.Println("putObjectCommon e.", e)
 	return info, e
 }
 
